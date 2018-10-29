@@ -15,7 +15,7 @@ namespace NLP_With_Dispatch_Bot
     /// <summary>
     /// Represents a bot that processes incoming activities.
     /// For each interaction from the user, an instance of this class is called.
-    /// This is a Transient lifetime service.  Transient lifetime services are created
+    /// This is a Transient lifetime service. Transient lifetime services are created
     /// each time they're requested. For each Activity received, a new instance of this
     /// class is created. Objects that are expensive to construct, or have a lifetime
     /// beyond the single Turn, should be carefully managed.
@@ -27,23 +27,23 @@ namespace NLP_With_Dispatch_Bot
         /// <summary>
         /// Key in the Bot config (.bot file) for the Home Automation Luis instance.
         /// </summary>
-        public static readonly string HomeAutomationLuisKey = "Home Automation";
+        private const string HomeAutomationLuisKey = "Home Automation";
 
         /// <summary>
         /// Key in the Bot config (.bot file) for the Weather Luis instance.
         /// </summary>
-        public static readonly string WeatherLuisKey = "Weather";
+        private const string WeatherLuisKey = "Weather";
 
         /// <summary>
         /// Key in the Bot config (.bot file) for the Dispatch.
         /// </summary>
-        public static readonly string DispatchKey = "nlp-with-dispatchDispatch";
+        private const string DispatchKey = "nlp-with-dispatchDispatch";
 
         /// <summary>
         /// Key in the Bot config (.bot file) for the QnaMaker instance.
         /// In the .bot file, multiple instances of QnaMaker can be configured.
         /// </summary>
-        public static readonly string QnAMakerKey = "sample-qna";
+        private const string QnAMakerKey = "sample-qna";
 
         /// <summary>
         /// Services configured from the ".bot" file.
@@ -60,17 +60,17 @@ namespace NLP_With_Dispatch_Bot
 
             if (!_services.QnAServices.ContainsKey(QnAMakerKey))
             {
-                throw new System.ArgumentException($"Invalid configuration.  Please check your '.bot' file for a QnA service named '{DispatchKey}'.");
+                throw new System.ArgumentException($"Invalid configuration. Please check your '.bot' file for a QnA service named '{DispatchKey}'.");
             }
 
             if (!_services.LuisServices.ContainsKey(HomeAutomationLuisKey))
             {
-                throw new System.ArgumentException($"Invalid configuration.  Please check your '.bot' file for a Luis service named '{HomeAutomationLuisKey}'.");
+                throw new System.ArgumentException($"Invalid configuration. Please check your '.bot' file for a Luis service named '{HomeAutomationLuisKey}'.");
             }
 
             if (!_services.LuisServices.ContainsKey(WeatherLuisKey))
             {
-                throw new System.ArgumentException($"Invalid configuration.  Please check your '.bot' file for a Luis service named '{WeatherLuisKey}'.");
+                throw new System.ArgumentException($"Invalid configuration. Please check your '.bot' file for a Luis service named '{WeatherLuisKey}'.");
             }
         }
 
@@ -79,36 +79,60 @@ namespace NLP_With_Dispatch_Bot
         /// There are no dialogs used, since it's "single turn" processing, meaning a single
         /// request and response, with no stateful conversation.
         /// </summary>
-        /// <param name="context">A <see cref="ITurnContext"/> containing all the data needed
+        /// <param name="turnContext">A <see cref="ITurnContext"/> containing all the data needed
         /// for processing this conversation turn. </param>
         /// <param name="cancellationToken">(Optional) A <see cref="CancellationToken"/> that can be used by other objects
         /// or threads to receive notice of cancellation.</param>
         /// <returns>A <see cref="Task"/> that represents the work queued to execute.</returns>
-        public async Task OnTurnAsync(ITurnContext context, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task OnTurnAsync(ITurnContext turnContext, CancellationToken cancellationToken = default(CancellationToken))
         {
-            if (context.Activity.Type == ActivityTypes.Message && !context.Responded)
+            if (turnContext.Activity.Type == ActivityTypes.Message && !turnContext.Responded)
             {
                 // Get the intent recognition result
-                var recognizerResult = await _services.LuisServices[DispatchKey].RecognizeAsync(context, cancellationToken);
+                var recognizerResult = await _services.LuisServices[DispatchKey].RecognizeAsync(turnContext, cancellationToken);
                 var topIntent = recognizerResult?.GetTopScoringIntent();
 
                 if (topIntent == null)
                 {
-                    await context.SendActivityAsync("Unable to get the top intent.");
+                    await turnContext.SendActivityAsync("Unable to get the top intent.");
                 }
                 else
                 {
-                    await DispatchToTopIntentAsync(context, topIntent, cancellationToken);
+                    await DispatchToTopIntentAsync(turnContext, topIntent, cancellationToken);
                 }
             }
-            else if (context.Activity.Type == ActivityTypes.ConversationUpdate)
+            else if (turnContext.Activity.Type == ActivityTypes.ConversationUpdate)
             {
                 // Send a welcome message to the user and tell them what actions they may perform to use this bot
-                await SendWelcomeMessageAsync(context, cancellationToken);
+                if (turnContext.Activity.MembersAdded != null)
+                {
+                    await SendWelcomeMessageAsync(turnContext, cancellationToken);
+                }
             }
             else
             {
-                await context.SendActivityAsync($"{context.Activity.Type} event detected", cancellationToken: cancellationToken);
+                await turnContext.SendActivityAsync($"{turnContext.Activity.Type} event detected", cancellationToken: cancellationToken);
+            }
+        }
+
+        /// <summary>
+        /// On a conversation update activity sent to the bot, the bot will
+        /// send a message to the any new user(s) that were added.
+        /// </summary>
+        /// <param name="turnContext">Provides the <see cref="ITurnContext"/> for the turn of the bot.</param>
+        /// <param name="cancellationToken" >(Optional) A <see cref="CancellationToken"/> that can be used by other objects
+        /// or threads to receive notice of cancellation.</param>
+        /// <returns>>A <see cref="Task"/> representing the operation result of the Turn operation.</returns>
+        private static async Task SendWelcomeMessageAsync(ITurnContext turnContext, CancellationToken cancellationToken)
+        {
+            foreach (var member in turnContext.Activity.MembersAdded)
+            {
+                if (member.Id != turnContext.Activity.Recipient.Id)
+                {
+                    await turnContext.SendActivityAsync(
+                        $"Welcome to Dispatch bot {member.Name}. {WelcomeText}",
+                        cancellationToken: cancellationToken);
+                }
             }
         }
 
@@ -181,27 +205,6 @@ namespace NLP_With_Dispatch_Bot
             if (result.Entities.Count > 0)
             {
                 await context.SendActivityAsync($"The following entities were found in the message:\n\n{string.Join("\n\n", result.Entities)}");
-            }
-        }
-
-        /// <summary>
-        /// On a conversation update activity sent to the bot, the bot will
-        /// send a message to the any new user(s) that were added.
-        /// </summary>
-        /// <param name="turnContext">Provides the <see cref="ITurnContext"/> for the turn of the bot.</param>
-        /// <param name="cancellationToken" >(Optional) A <see cref="CancellationToken"/> that can be used by other objects
-        /// or threads to receive notice of cancellation.</param>
-        /// <returns>>A <see cref="Task"/> representing the operation result of the Turn operation.</returns>
-        private static async Task SendWelcomeMessageAsync(ITurnContext turnContext, CancellationToken cancellationToken)
-        {
-            foreach (var member in turnContext.Activity.MembersAdded)
-            {
-                if (member.Id != turnContext.Activity.Recipient.Id)
-                {
-                    await turnContext.SendActivityAsync(
-                        $"Welcome to Dispatch bot {member.Name}. {WelcomeText}",
-                        cancellationToken: cancellationToken);
-                }
             }
         }
     }
